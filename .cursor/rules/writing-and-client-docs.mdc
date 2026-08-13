@@ -1,0 +1,7 @@
+---
+description: Writing and client-facing data contract
+alwaysApply: true
+---
+Follow AGENTS.md "Writing and client-facing artifacts".
+No fake data.
+No internal process voice.
