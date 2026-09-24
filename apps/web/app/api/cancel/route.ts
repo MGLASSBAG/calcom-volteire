@@ -12,6 +12,11 @@ import { bookingCancelWithCsrfSchema } from "@calcom/prisma/zod-utils";
 import { validateCsrfToken } from "@calcom/web/lib/validateCsrfToken";
 
 import { buildLegacyRequest } from "@lib/buildLegacyCtx";
+import {
+  SERVICE_SECRET_HEADER,
+  assertServiceOnlyBookingAllowed,
+  getBookingEventTypeId,
+} from "@lib/volteire/serviceOnlyBooking";
 
 async function handler(req: NextRequest) {
   let appDirRequestBody;
@@ -28,6 +33,14 @@ async function handler(req: NextRequest) {
   }
 
   const session = await getServerSession({ req: buildLegacyRequest(await headers(), await cookies()) });
+
+  // Volt Éire: installation bookings are cancelled through Volt Éire, not
+  // from a Cal email link, so refunds and the installer are handled.
+  assertServiceOnlyBookingAllowed({
+    eventTypeIds: [await getBookingEventTypeId({ id: bookingData.id, uid: bookingData.uid })],
+    serviceSecret: req.headers.get(SERVICE_SECRET_HEADER),
+    sessionRole: session?.user?.role,
+  });
 
   // Rate limit: 10 booking cancellations per 60 seconds per user (or IP if not authenticated)
   const identifier = session?.user?.id

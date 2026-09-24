@@ -8,6 +8,11 @@ import { piiHasher } from "@calcom/lib/server/PiiHasher";
 import { defaultResponder } from "@calcom/lib/server/defaultResponder";
 import { CreationSource } from "@calcom/prisma/enums";
 
+import {
+  SERVICE_SECRET_HEADER,
+  assertServiceOnlyBookingAllowed,
+} from "@lib/volteire/serviceOnlyBooking";
+
 async function handler(req: NextApiRequest & { userId?: number }) {
   const userIp = getIP(req);
 
@@ -17,6 +22,14 @@ async function handler(req: NextApiRequest & { userId?: number }) {
   });
 
   const session = await getServerSession({ req });
+
+  // Volt Éire: installation bookings are created only after payment.
+  assertServiceOnlyBookingAllowed({
+    eventTypeIds: [req.body?.eventTypeId],
+    serviceSecret: req.headers[SERVICE_SECRET_HEADER],
+    sessionRole: session?.user?.role,
+  });
+
   req.userId = session?.user?.id || -1;
   req.body.creationSource = CreationSource.WEBAPP;
 

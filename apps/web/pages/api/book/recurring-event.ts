@@ -8,6 +8,11 @@ import { piiHasher } from "@calcom/lib/server/PiiHasher";
 import { checkCfTurnstileToken } from "@calcom/lib/server/checkCfTurnstileToken";
 import { defaultResponder } from "@calcom/lib/server/defaultResponder";
 
+import {
+  SERVICE_SECRET_HEADER,
+  assertServiceOnlyBookingAllowed,
+} from "@lib/volteire/serviceOnlyBooking";
+
 // @TODO: Didn't look at the contents of this function in order to not break old booking page.
 
 type PlatformParams = {
@@ -40,6 +45,16 @@ async function handler(req: NextApiRequest & RequestMeta) {
     identifier: `createRecurringBooking:${piiHasher.hash(userIp)}`,
   });
   const session = await getServerSession({ req });
+
+  // Volt Éire: installation bookings are created only after payment.
+  assertServiceOnlyBookingAllowed({
+    eventTypeIds: (Array.isArray(req.body) ? req.body : [req.body]).map(
+      (booking: { eventTypeId?: unknown }) => booking?.eventTypeId
+    ),
+    serviceSecret: req.headers[SERVICE_SECRET_HEADER],
+    sessionRole: session?.user?.role,
+  });
+
   /* To mimic API behavior and comply with types */
 
   const recurringBookingService = getRecurringBookingService();
