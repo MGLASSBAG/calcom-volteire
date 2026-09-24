@@ -14,6 +14,11 @@ import type { TraceContext } from "@calcom/lib/tracing";
 import { prisma } from "@calcom/prisma";
 import { CreationSource } from "@calcom/prisma/enums";
 
+import {
+  SERVICE_SECRET_HEADER,
+  assertServiceOnlyBookingAllowed,
+} from "@lib/volteire/serviceOnlyBooking";
+
 async function handler(req: NextApiRequest & { userId?: number; traceContext: TraceContext }) {
   const userIp = getIP(req);
 
@@ -40,6 +45,14 @@ async function handler(req: NextApiRequest & { userId?: number; traceContext: Tr
   });
 
   const session = await getServerSession({ req });
+
+  // Volt Éire: installation bookings are created only after payment.
+  assertServiceOnlyBookingAllowed({
+    eventTypeIds: [req.body?.eventTypeId],
+    serviceSecret: req.headers[SERVICE_SECRET_HEADER],
+    sessionRole: session?.user?.role,
+  });
+
   /* To mimic API behavior and comply with types */
   req.body = {
     ...req.body,

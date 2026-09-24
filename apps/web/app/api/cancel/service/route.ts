@@ -6,6 +6,8 @@ import handleCancelBooking from "@calcom/features/bookings/lib/handleCancelBooki
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
 import { bookingCancelSchema } from "@calcom/prisma/zod-utils";
 
+import { SERVICE_SECRET_HEADER, isValidServiceSecret } from "@lib/volteire/serviceOnlyBooking";
+
 /**
  * Server-to-server booking cancellation.
  *
@@ -27,18 +29,10 @@ import { bookingCancelSchema } from "@calcom/prisma/zod-utils";
  * with a database error. Cancellation has to go through `handleCancelBooking`
  * so the calendar sync, webhooks, refunds and emails all run.
  *
- * Auth is a shared secret in `x-cal-service-secret`, compared in constant time.
+ * Auth is a shared secret in `x-cal-service-secret`, compared in constant time
+ * (lib/volteire/serviceOnlyBooking).
  * The route is inert unless `CAL_SERVICE_SECRET` is set.
  */
-
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < a.length; i++) {
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return mismatch === 0;
-}
 
 async function handler(req: NextRequest) {
   const configuredSecret = process.env.CAL_SERVICE_SECRET;
@@ -51,8 +45,7 @@ async function handler(req: NextRequest) {
     );
   }
 
-  const presented = req.headers.get("x-cal-service-secret") || "";
-  if (!timingSafeEqual(presented, configuredSecret)) {
+  if (!isValidServiceSecret(req.headers.get(SERVICE_SECRET_HEADER))) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
   }
 
@@ -64,7 +57,11 @@ async function handler(req: NextRequest) {
   }
 
   // Same payload as the browser route, minus the CSRF token.
-  const bookingData = bookingCancelSchema.parse(body);
+  const parsed = bookingCancelSchema.safeParse(body);
+  if (!parsed.success || (!parsed.data.id && !parsed.data.uid)) {
+    return NextResponse.json({ success: false, message: "Invalid cancellation request" }, { status: 400 });
+  }
+  const bookingData = parsed.data;
 
   await checkRateLimitAndThrowError({
     rateLimitingType: "core",
