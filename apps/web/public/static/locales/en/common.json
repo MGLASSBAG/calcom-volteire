@@ -4468,5 +4468,10 @@
   "error_enabling_feature": "Error enabling feature. Please try again.",
   "set_organizer_as_contact_owner": "Set booking organizer as contact owner",
   "overwrite_existing_contact_owner": "Overwrite existing contact owner",
+  "volteire_calendar_title": "Volt Éire calendar settings",
+  "volteire_calendar_opening": "Opening your secure calendar settings…",
+  "volteire_calendar_handoff_failed": "This connection link has expired or was already used. Return to your installer availability page and try again.",
+  "volteire_return_to_availability": "Back to installer availability",
+  "volteire_calendar_hours_hint": "Choose calendars for conflict checks and installation appointments here. Set working hours and time off in the installer portal.",
   "ADD_NEW_STRINGS_ABOVE_THIS_LINE_TO_PREVENT_MERGE_CONFLICTS":"↑↑↑↑↑↑↑↑↑↑↑↑↑ Add your new strings above here ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑"
 }

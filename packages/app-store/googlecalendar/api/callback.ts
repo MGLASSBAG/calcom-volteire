@@ -1,7 +1,3 @@
-import { calendar_v3 } from "@googleapis/calendar";
-import { OAuth2Client } from "googleapis-common";
-import type { NextApiRequest, NextApiResponse } from "next";
-
 import { createGoogleCalendarServiceWithGoogleType } from "@calcom/app-store/googlecalendar/lib/CalendarService";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
 import { renewSelectedCalendarCredentialId } from "@calcom/lib/connectedCalendar";
@@ -16,15 +12,17 @@ import { HttpError } from "@calcom/lib/http-error";
 import { defaultHandler } from "@calcom/lib/server/defaultHandler";
 import { defaultResponder } from "@calcom/lib/server/defaultResponder";
 import { Prisma } from "@calcom/prisma/client";
-
+import { calendar_v3 } from "@googleapis/calendar";
+import { OAuth2Client } from "googleapis-common";
+import type { NextApiRequest, NextApiResponse } from "next";
 import getInstalledAppPath from "../../_utils/getInstalledAppPath";
-import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+import { consumeCalendarOAuthState } from "../../_utils/oauth/calendarOAuthState";
 import { updateProfilePhotoGoogle } from "../../_utils/oauth/updateProfilePhotoGoogle";
 import { getGoogleAppKeys } from "../lib/getGoogleAppKeys";
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query;
-  const state = decodeOAuthState(req);
+  const state = consumeCalendarOAuthState(req, res, "google");
 
   if (typeof code !== "string") {
     if (state?.onErrorReturnTo || state?.returnTo) {

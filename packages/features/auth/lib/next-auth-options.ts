@@ -1,23 +1,11 @@
-import { calendar_v3 } from "@googleapis/calendar";
-import { waitUntil } from "@vercel/functions";
-import { OAuth2Client } from "googleapis-common";
-import type { AuthOptions, Account, Session, User } from "next-auth";
-import type { JWT } from "next-auth/jwt";
-import { encode } from "next-auth/jwt";
-import type { Provider } from "next-auth/providers";
-import CredentialsProvider from "next-auth/providers/credentials";
-import EmailProvider from "next-auth/providers/email";
-import GoogleProvider from "next-auth/providers/google";
-
 import { updateProfilePhotoGoogle } from "@calcom/app-store/_utils/oauth/updateProfilePhotoGoogle";
 import {
   createGoogleCalendarServiceWithGoogleType,
   type GoogleCalendar,
 } from "@calcom/app-store/googlecalendar/lib/CalendarService";
 import { LicenseKeySingleton } from "@calcom/ee/common/server/LicenseKeyService";
-import { getBillingProviderService } from "@calcom/features/ee/billing/di/containers/Billing";
 import { CredentialRepository } from "@calcom/features/credentials/repositories/CredentialRepository";
-import type { TrackingData } from "@calcom/lib/tracking";
+import { getBillingProviderService } from "@calcom/features/ee/billing/di/containers/Billing";
 import { DeploymentRepository } from "@calcom/features/ee/deployment/repositories/DeploymentRepository";
 import createUsersAndConnectToOrg from "@calcom/features/ee/dsync/lib/users/createUsersAndConnectToOrg";
 import ImpersonationProvider from "@calcom/features/ee/impersonation/lib/ImpersonationProvider";
@@ -29,12 +17,14 @@ import { UserRepository } from "@calcom/features/users/repositories/UserReposito
 import { isPasswordValid } from "@calcom/lib/auth/isPasswordValid";
 import { checkRateLimitAndThrowError } from "@calcom/lib/checkRateLimitAndThrowError";
 import {
+  ENABLE_PROFILE_SWITCHER,
   GOOGLE_CALENDAR_SCOPES,
   GOOGLE_OAUTH_SCOPES,
   HOSTED_CAL_FEATURES,
   IS_CALCOM,
+  IS_TEAM_BILLING_ENABLED,
+  WEBAPP_URL,
 } from "@calcom/lib/constants";
-import { ENABLE_PROFILE_SWITCHER, IS_TEAM_BILLING_ENABLED, WEBAPP_URL } from "@calcom/lib/constants";
 import { symmetricDecrypt, symmetricEncrypt } from "@calcom/lib/crypto";
 import { defaultCookies } from "@calcom/lib/default-cookies";
 import { isENVDev } from "@calcom/lib/env";
@@ -43,19 +33,30 @@ import { randomString } from "@calcom/lib/random";
 import { safeStringify } from "@calcom/lib/safeStringify";
 import { hashEmail } from "@calcom/lib/server/PiiHasher";
 import slugify from "@calcom/lib/slugify";
+import type { TrackingData } from "@calcom/lib/tracking";
 import prisma from "@calcom/prisma";
 import type { Membership, Team } from "@calcom/prisma/client";
-import { CreationSource } from "@calcom/prisma/enums";
-import { IdentityProvider, MembershipRole, UserPermissionRole } from "@calcom/prisma/enums";
+import { CreationSource, IdentityProvider, MembershipRole, UserPermissionRole } from "@calcom/prisma/enums";
 import { teamMetadataSchema, userMetadata } from "@calcom/prisma/zod-utils";
-
-import { getOrgUsernameFromEmail } from "../signup/utils/getOrgUsernameFromEmail";
-import { ErrorCode } from "./ErrorCode";
-import { dub } from "./dub";
-import { validateSamlAccountConversion } from "./samlAccountLinking";
-import CalComAdapter from "./next-auth-custom-adapter";
-import { verifyPassword } from "./verifyPassword";
 import { UserProfile } from "@calcom/types/UserProfile";
+import { calendar_v3 } from "@googleapis/calendar";
+import { waitUntil } from "@vercel/functions";
+import { OAuth2Client } from "googleapis-common";
+import type { Account, AuthOptions, Session, User } from "next-auth";
+import type { JWT } from "next-auth/jwt";
+import { encode } from "next-auth/jwt";
+import type { Provider } from "next-auth/providers";
+import CredentialsProvider from "next-auth/providers/credentials";
+import EmailProvider from "next-auth/providers/email";
+import GoogleProvider from "next-auth/providers/google";
+import { getOrgUsernameFromEmail } from "../signup/utils/getOrgUsernameFromEmail";
+import { dub } from "./dub";
+import { ErrorCode } from "./ErrorCode";
+import CalComAdapter from "./next-auth-custom-adapter";
+import { validateSamlAccountConversion } from "./samlAccountLinking";
+import { VolteireCalendarProvider } from "./VolteireCalendarProvider";
+import { verifyPassword } from "./verifyPassword";
+import { isInstallerCalendarConnectEnabled } from "./volteire-calendar-ticket";
 
 type UserWithProfiles = NonNullable<
   Awaited<ReturnType<UserRepository["findByEmailAndIncludeProfilesAndPassword"]>>
@@ -278,6 +279,7 @@ export const CalComCredentialsProvider = CredentialsProvider({
 });
 
 const providers: Provider[] = [CalComCredentialsProvider, ImpersonationProvider];
+if (isInstallerCalendarConnectEnabled()) providers.push(VolteireCalendarProvider);
 type SamlIdpUser = {
   id: number;
   userId: number;
@@ -527,6 +529,13 @@ export const getOptions = ({
           }
         }
       }
+      if (typeof token?.volteireCalendarExpiresAt === "number") {
+        // A portal handoff never creates a rolling thirty-day Cal session.
+        maxAge = Math.max(
+          0,
+          Math.min(maxAge ?? 3600, token.volteireCalendarExpiresAt - Math.floor(Date.now() / 1000))
+        );
+      }
       return encode({ secret, token, maxAge });
     },
   },
@@ -562,12 +571,18 @@ export const getOptions = ({
           locale: session?.locale ?? token.locale ?? "en",
           name: session?.name ?? token.name,
           username: session?.username ?? token.username,
-          email: session?.email ?? token.email,
+          email:
+            typeof token.volteireCalendarExpiresAt === "number"
+              ? token.email
+              : (session?.email ?? token.email),
         } as JWT;
       }
       const autoMergeIdentities = async () => {
         const existingUser = await prisma.user.findFirst({
-          where: { email: token.email! },
+          where:
+            typeof token.volteireCalendarExpiresAt === "number"
+              ? { id: Number(token.sub) }
+              : { email: token.email! },
           select: {
             id: true,
             username: true,
@@ -639,14 +654,14 @@ export const getOptions = ({
           org:
             profileOrg && !profileOrg.isPlatform
               ? {
-                id: profileOrg.id,
-                name: profileOrg.name,
-                slug: profileOrg.slug ?? profileOrg.requestedSlug ?? "",
-                logoUrl: profileOrg.logoUrl,
-                fullDomain: getOrgFullOrigin(profileOrg.slug ?? profileOrg.requestedSlug ?? ""),
-                domainSuffix: subdomainSuffix(),
-                role: orgRole as MembershipRole, // It can't be undefined if we have a profileOrg
-              }
+                  id: profileOrg.id,
+                  name: profileOrg.name,
+                  slug: profileOrg.slug ?? profileOrg.requestedSlug ?? "",
+                  logoUrl: profileOrg.logoUrl,
+                  fullDomain: getOrgFullOrigin(profileOrg.slug ?? profileOrg.requestedSlug ?? ""),
+                  domainSuffix: subdomainSuffix(),
+                  role: orgRole as MembershipRole, // It can't be undefined if we have a profileOrg
+                }
               : null,
         } as JWT;
       };
@@ -672,6 +687,9 @@ export const getOptions = ({
         // any other credentials, add user info
         return {
           ...token,
+          ...(account.provider === "volteire-calendar"
+            ? { volteireCalendarExpiresAt: Math.floor(Date.now() / 1000) + 3600 }
+            : {}),
           id: user.id,
           name: user.name,
           username: user.username,
@@ -878,7 +896,10 @@ export const getOptions = ({
       }
 
       if (!user.name) {
-        log.warn("callbacks:signIn - user name is missing", { emailDomain: user.email.split("@")[1], provider: account?.provider });
+        log.warn("callbacks:signIn - user name is missing", {
+          emailDomain: user.email.split("@")[1],
+          provider: account?.provider,
+        });
         return false;
       }
       if (account?.provider) {
@@ -1021,7 +1042,11 @@ export const getOptions = ({
             // Verify SAML IdP is authoritative before auto-merge
             if (idP === IdentityProvider.SAML) {
               const samlTenant = getSamlTenant();
-              const validation = await validateSamlAccountConversion(samlTenant, user.email, "SelfHosted→SAML");
+              const validation = await validateSamlAccountConversion(
+                samlTenant,
+                user.email,
+                "SelfHosted→SAML"
+              );
               if (!validation.allowed) {
                 return validation.errorUrl;
               }
@@ -1106,12 +1131,8 @@ export const getOptions = ({
             } else {
               return true;
             }
-          } else if (
-            existingUserWithEmail.identityProvider === IdentityProvider.CAL
-          ) {
-            log.error(
-              `Userid ${user.id} already exists with CAL identity provider`
-            );
+          } else if (existingUserWithEmail.identityProvider === IdentityProvider.CAL) {
+            log.error(`Userid ${user.id} already exists with CAL identity provider`);
             return `/auth/error?error=wrong-provider&provider=${existingUserWithEmail.identityProvider}`;
           } else if (
             existingUserWithEmail.identityProvider === IdentityProvider.GOOGLE &&
@@ -1140,17 +1161,14 @@ export const getOptions = ({
               return true;
             }
           }
-          log.error(
-            `Userid ${user.id} trying to login with the wrong provider`,
-            {
-              userId: user.id,
-              account: {
-                providerAccountId: account?.providerAccountId,
-                type: account?.type,
-                provider: account?.provider,
-              },
-            }
-          );
+          log.error(`Userid ${user.id} trying to login with the wrong provider`, {
+            userId: user.id,
+            account: {
+              providerAccountId: account?.providerAccountId,
+              type: account?.type,
+              provider: account?.provider,
+            },
+          });
           return `/auth/error?error=wrong-provider&provider=${existingUserWithEmail.identityProvider}`;
         }
 

@@ -1,12 +1,10 @@
-import { OAuth2Client } from "googleapis-common";
-import type { NextApiRequest, NextApiResponse } from "next";
-
 import { GOOGLE_CALENDAR_SCOPES, SCOPE_USERINFO_PROFILE, WEBAPP_URL_FOR_OAUTH } from "@calcom/lib/constants";
 import { HttpError } from "@calcom/lib/http-error";
 import { defaultHandler } from "@calcom/lib/server/defaultHandler";
 import { defaultResponder } from "@calcom/lib/server/defaultResponder";
-
-import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+import { OAuth2Client } from "googleapis-common";
+import type { NextApiRequest, NextApiResponse } from "next";
+import { createCalendarOAuthState } from "../../_utils/oauth/calendarOAuthState";
 import { getGoogleAppKeys } from "../lib/getGoogleAppKeys";
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
@@ -34,7 +32,7 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     // setting the prompt to 'consent' will force this consent
     // every time, forcing a refresh_token to be returned.
     prompt: "consent",
-    state: encodeOAuthState(req),
+    state: createCalendarOAuthState(req, res, "google"),
   });
 
   res.status(200).json({ url: authUrl });

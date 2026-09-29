@@ -1,6 +1,3 @@
-import type { Calendar as OfficeCalendar } from "@microsoft/microsoft-graph-types-beta";
-import type { NextApiRequest, NextApiResponse } from "next";
-
 import { renewSelectedCalendarCredentialId } from "@calcom/lib/connectedCalendar";
 import { WEBAPP_URL, WEBAPP_URL_FOR_OAUTH } from "@calcom/lib/constants";
 import { handleErrorsJson } from "@calcom/lib/errors";
@@ -8,16 +5,17 @@ import { getSafeRedirectUrl } from "@calcom/lib/getSafeRedirectUrl";
 import logger from "@calcom/lib/logger";
 import prisma from "@calcom/prisma";
 import { Prisma } from "@calcom/prisma/client";
-
+import type { Calendar as OfficeCalendar } from "@microsoft/microsoft-graph-types-beta";
+import type { NextApiRequest, NextApiResponse } from "next";
 import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
 import getInstalledAppPath from "../../_utils/getInstalledAppPath";
-import { decodeOAuthState } from "../../_utils/oauth/decodeOAuthState";
+import { consumeCalendarOAuthState } from "../../_utils/oauth/calendarOAuthState";
 
 const scopes = ["offline_access", "Calendars.Read", "Calendars.ReadWrite"];
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query;
-  const state = decodeOAuthState(req);
+  const state = consumeCalendarOAuthState(req, res, "office365");
 
   if (typeof code !== "string") {
     if (state?.onErrorReturnTo || state?.returnTo) {

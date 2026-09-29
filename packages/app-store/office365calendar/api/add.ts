@@ -1,10 +1,8 @@
-import type { NextApiRequest, NextApiResponse } from "next";
 import { stringify } from "node:querystring";
-
 import { WEBAPP_URL_FOR_OAUTH } from "@calcom/lib/constants";
-
+import type { NextApiRequest, NextApiResponse } from "next";
 import getAppKeysFromSlug from "../../_utils/getAppKeysFromSlug";
-import { encodeOAuthState } from "../../_utils/oauth/encodeOAuthState";
+import { createCalendarOAuthState } from "../../_utils/oauth/calendarOAuthState";
 
 const scopes = ["User.Read", "Calendars.Read", "Calendars.ReadWrite", "offline_access"];
 
@@ -14,7 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const appKeys = await getAppKeysFromSlug("office365-calendar");
     if (typeof appKeys.client_id === "string") clientId = appKeys.client_id;
     if (!clientId) return res.status(400).json({ message: "Office 365 client_id missing." });
-    const state = encodeOAuthState(req);
+    const state = createCalendarOAuthState(req, res, "office365");
     const params = {
       response_type: "code",
       scope: scopes.join(" "),

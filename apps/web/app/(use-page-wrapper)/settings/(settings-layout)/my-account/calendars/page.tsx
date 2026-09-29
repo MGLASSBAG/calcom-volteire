@@ -1,10 +1,10 @@
-import { createRouterCaller } from "app/_trpc/context";
-import { _generateMetadata } from "app/_utils";
-
+import { WEBAPP_URL } from "@calcom/lib/constants";
 import { appsRouter } from "@calcom/trpc/server/routers/viewer/apps/_router";
 import { calendarsRouter } from "@calcom/trpc/server/routers/viewer/calendars/_router";
-
 import { CalendarListContainer } from "@components/apps/CalendarListContainer";
+import { VolteireCalendarReturnLink } from "@components/apps/VolteireCalendarReturnLink";
+import { createRouterCaller } from "app/_trpc/context";
+import { _generateMetadata } from "app/_utils";
 
 export const generateMetadata = async () =>
   await _generateMetadata(
@@ -29,7 +29,13 @@ const Page = async () => {
     }),
   ]);
   return (
-    <CalendarListContainer connectedCalendars={connectedCalendars} installedCalendars={installedCalendars} />
+    <>
+      {new URL(WEBAPP_URL).hostname === "cal.volteire.ie" && <VolteireCalendarReturnLink />}
+      <CalendarListContainer
+        connectedCalendars={connectedCalendars}
+        installedCalendars={installedCalendars}
+      />
+    </>
   );
 };
 
